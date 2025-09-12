@@ -47,5 +47,22 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Export image as artifact (PRs only)
+        if: github.event_name == 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IMAGE=$(echo "$IMAGE_TAGS" | head -n1)
+          echo "Saving $IMAGE to image.tar"
+          docker save "$IMAGE" -o image.tar
+
+      - name: Upload image artifact (PRs only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image-tar
+          path: image.tar
