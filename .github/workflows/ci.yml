@@ -88,6 +88,6 @@ jobs:
             export IMAGE_NAME=ghcr.io/${{ steps.vars.outputs.owner }}/${{ steps.vars.outputs.repo }}:latest
             cd ${{ secrets.DEPLOY_PATH }}
             echo "Pulling $IMAGE_NAME"
-            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
             docker pull $IMAGE_NAME || true
             IMAGE_NAME=$IMAGE_NAME docker compose up -d --pull always --no-deps enisai
