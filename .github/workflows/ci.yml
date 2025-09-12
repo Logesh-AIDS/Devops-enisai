@@ -66,3 +66,28 @@ jobs:
         with:
           name: docker-image-tar
           path: image.tar
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare variables
+        id: vars
+        run: |
+          echo "owner=${GITHUB_REPOSITORY%/*}" >> $GITHUB_OUTPUT
+          echo "repo=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
+      - name: SSH and deploy with docker compose
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            export IMAGE_NAME=ghcr.io/${{ steps.vars.outputs.owner }}/${{ steps.vars.outputs.repo }}:latest
+            cd ${{ secrets.DEPLOY_PATH }}
+            echo "Pulling $IMAGE_NAME"
+            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+            docker pull $IMAGE_NAME || true
+            IMAGE_NAME=$IMAGE_NAME docker compose up -d --pull always --no-deps enisai
