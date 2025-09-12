@@ -41,7 +41,7 @@ resource "docker_container" "prometheus" {
     external = 9090
   }
   volumes {
-    host_path      = "${path.module}/../monitoring/prometheus.yml"
+    host_path      = abspath("${path.module}/../monitoring/prometheus.yml")
     container_path = "/etc/prometheus/prometheus.yml"
     read_only      = true
   }

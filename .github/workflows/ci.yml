@@ -67,9 +67,81 @@ jobs:
           name: docker-image-tar
           path: image.tar
 
+  security-scan:
+    needs: docker-build-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@v0.2.2
+      - name: Scan image with Trivy
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" > tags.txt || true
+          TAG=$(grep ghcr.io tags.txt | head -n1)
+          if [ -z "$TAG" ]; then echo "No tag found; skipping"; exit 0; fi
+          trivy image --severity HIGH,CRITICAL --no-progress "$TAG"
+
+  terraform-plan-aws:
+    if: github.ref == 'refs/heads/main'
+    needs: security-scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/aws
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+      - name: Terraform Init
+        run: terraform init -input=false
+      - name: Terraform Plan
+        env:
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
+          TF_VAR_image: ghcr.io/${{ github.repository }}:latest
+        run: terraform plan -input=false -out=tfplan
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/aws/tfplan
+
+  terraform-apply-aws:
+    if: github.ref == 'refs/heads/main'
+    needs: terraform-plan-aws
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: terraform/aws
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.5.7
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: Terraform Init
+        run: terraform init -input=false
+      - name: Terraform Apply
+        env:
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
+          TF_VAR_image: ghcr.io/${{ github.repository }}:latest
+        run: terraform apply -input=false -auto-approve
+
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: docker-build-push
+    needs: terraform-apply-aws
     runs-on: ubuntu-latest
     steps:
       - name: Prepare variables

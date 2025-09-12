@@ -40,6 +40,47 @@ terraform apply -auto-approve
 
 Outputs include app, Prometheus, and Grafana URLs.
 
+## AWS Deployment (EC2 via Terraform)
+
+This repo includes an AWS stack under `terraform/aws/` to provision an EC2 instance and run the same stack (app, Prometheus, Grafana) with Docker Compose.
+
+### Prerequisites
+- AWS account and VPC defaults
+- An existing EC2 key pair name (for SSH) in your region
+- GitHub OIDC role for Actions (recommended) or long-lived AWS keys
+
+### Required GitHub Secrets
+- `AWS_REGION`: e.g., `us-east-1`
+- `AWS_ROLE_ARN`: IAM role ARN assumed by GitHub Actions (OIDC)
+- `AWS_KEY_NAME`: existing EC2 key pair name
+
+Optional (server-side CD path, used by separate SSH deploy job if enabled):
+- `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH`
+- `GHCR_USERNAME`, `GHCR_TOKEN` (only if pulling private images)
+
+### What the pipeline does
+On push to `main`:
+- Build and lint the app
+- Build and push Docker image to GHCR
+- Security scan with Trivy
+- Terraform Plan (`terraform/aws`)
+- Terraform Apply (`terraform/aws`) — provisions Security Group + EC2
+- User data on EC2 installs Docker and starts services with your GHCR image
+
+Image reference used: `ghcr.io/<owner>/<repo>:latest`
+
+### Manual run (optional)
+```bash
+cd terraform/aws
+terraform init
+terraform apply -auto-approve \
+  -var "aws_region=<region>" \
+  -var "key_name=<ec2-keypair-name>" \
+  -var "image=ghcr.io/<owner>/<repo>:latest"
+```
+
+Outputs will include the public IP and service URLs.
+
 ## Repo Layout
 
 ```
