@@ -22,13 +22,8 @@ data "aws_subnets" "default" {
   }
 }
 
-resource "aws_ecr_repository" "enisai" {
-  name                 = "enisai"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
+data "aws_ecr_repository" "enisai" {
+  name = "enisai"
 }
 
 resource "aws_security_group" "enisai" {
@@ -150,7 +145,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
 }
 
 output "ecr_repository_url" {
-  value = aws_ecr_repository.enisai.repository_url
+  value = data.aws_ecr_repository.enisai.repository_url
 }
 
 output "ecs_cluster_name" {
