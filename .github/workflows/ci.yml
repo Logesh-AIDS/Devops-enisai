@@ -28,37 +28,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: enisai
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Export image as artifact (PRs only)
         if: github.event_name == 'pull_request'
-        env:
-          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          IMAGE=$(echo "$IMAGE_TAGS" | head -n1)
-          echo "Saving $IMAGE to image.tar"
-          docker save "$IMAGE" -o image.tar
+          docker save ${{ steps.build-image.outputs.image }} -o image.tar
 
       - name: Upload image artifact (PRs only)
         if: github.event_name == 'pull_request'
@@ -72,14 +67,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Install Trivy
         uses: aquasecurity/setup-trivy@v0.2.2
       - name: Scan image with Trivy
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: enisai
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "${{ steps.meta.outputs.tags }}" > tags.txt || true
-          TAG=$(grep ghcr.io tags.txt | head -n1)
-          if [ -z "$TAG" ]; then echo "No tag found; skipping"; exit 0; fi
-          trivy image --severity HIGH,CRITICAL --no-progress "$TAG"
+          trivy image --severity HIGH,CRITICAL --no-progress $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   terraform-plan-aws:
     if: github.ref == 'refs/heads/main'
@@ -94,26 +99,21 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.7
-      - name: Configure AWS Credentials (OIDC)
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      - name: Configure AWS Credentials (Access Keys)
-        if: ${{ secrets.AWS_ROLE_ARN == '' }}
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Terraform Init
         run: terraform init -input=false
       - name: Terraform Plan
         env:
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
-          TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
-          TF_VAR_image: ghcr.io/${{ github.repository }}:latest
+          TF_VAR_image: ${{ steps.login-ecr.outputs.registry }}/enisai:${{ github.sha }}
         run: terraform plan -input=false -out=tfplan
       - name: Upload Plan
         uses: actions/upload-artifact@v4
@@ -126,9 +126,6 @@ jobs:
     needs: terraform-plan-aws
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      contents: read
-      id-token: write
     defaults:
       run:
         working-directory: terraform/aws
@@ -138,26 +135,21 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.5.7
-      - name: Configure AWS Credentials (OIDC)
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ secrets.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-      - name: Configure AWS Credentials (Access Keys)
-        if: ${{ secrets.AWS_ROLE_ARN == '' }}
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-region: ${{ secrets.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
       - name: Terraform Init
         run: terraform init -input=false
       - name: Terraform Apply
         env:
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
-          TF_VAR_key_name: ${{ secrets.AWS_KEY_NAME }}
-          TF_VAR_image: ghcr.io/${{ github.repository }}:latest
+          TF_VAR_image: ${{ steps.login-ecr.outputs.registry }}/enisai:${{ github.sha }}
         run: terraform apply -input=false -auto-approve
 
   deploy:
@@ -165,22 +157,19 @@ jobs:
     needs: terraform-apply-aws
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare variables
-        id: vars
-        run: |
-          echo "owner=${GITHUB_REPOSITORY%/*}" >> $GITHUB_OUTPUT
-          echo "repo=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
-      - name: SSH and deploy with docker compose
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            set -e
-            export IMAGE_NAME=ghcr.io/${{ steps.vars.outputs.owner }}/${{ steps.vars.outputs.repo }}:latest
-            cd ${{ secrets.DEPLOY_PATH }}
-            echo "Pulling $IMAGE_NAME"
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            docker pull $IMAGE_NAME || true
-            IMAGE_NAME=$IMAGE_NAME docker compose up -d --pull always --no-deps enisai
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Force new deployment
+        run: |
+          aws ecs update-service \
+            --cluster enisai-cluster \
+            --service enisai-service \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}

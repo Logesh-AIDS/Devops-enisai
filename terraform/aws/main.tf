@@ -11,26 +11,29 @@ provider "aws" {
   region = var.aws_region
 }
 
-data "aws_ami" "amazon_linux_2" {
-  most_recent = true
-  owners      = ["amazon"]
+data "aws_vpc" "default" {
+  default = true
+}
 
+data "aws_subnets" "default" {
   filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+resource "aws_ecr_repository" "enisai" {
+  name                 = "enisai"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
   }
 }
 
 resource "aws_security_group" "enisai" {
   name        = "enisai-sg"
-  description = "Allow HTTP app, Prometheus, Grafana, and SSH"
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.allow_cidr]
-  }
+  description = "Allow HTTP app, Prometheus, Grafana"
 
   ingress {
     from_port   = 5000
@@ -61,38 +64,101 @@ resource "aws_security_group" "enisai" {
   }
 }
 
-resource "aws_instance" "enisai" {
-  ami                    = data.aws_ami.amazon_linux_2.id
-  instance_type          = var.instance_type
-  vpc_security_group_ids = [aws_security_group.enisai.id]
-  key_name               = var.key_name
+resource "aws_ecs_cluster" "enisai" {
+  name = "enisai-cluster"
+}
 
-  user_data = templatefile(
-    "${path.module}/user_data.sh",
+resource "aws_ecs_task_definition" "enisai" {
+  family                   = "enisai"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 512
+  memory                   = 1024
+  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
+
+  container_definitions = jsonencode([
     {
+      name  = "enisai"
       image = var.image
+      portMappings = [
+        {
+          containerPort = 5000
+          hostPort      = 5000
+        }
+      ]
+      essential = true
+    },
+    {
+      name  = "prometheus"
+      image = "prom/prometheus:latest"
+      portMappings = [
+        {
+          containerPort = 9090
+          hostPort      = 9090
+        }
+      ]
+      essential = true
+    },
+    {
+      name  = "grafana"
+      image = "grafana/grafana:latest"
+      portMappings = [
+        {
+          containerPort = 3000
+          hostPort      = 3000
+        }
+      ]
+      essential = true
     }
-  )
+  ])
+}
 
-  tags = {
-    Name = "enisai"
+resource "aws_ecs_service" "enisai" {
+  name            = "enisai-service"
+  cluster         = aws_ecs_cluster.enisai.id
+  task_definition = aws_ecs_task_definition.enisai.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.enisai.id]
+    assign_public_ip = true
   }
 }
 
-output "public_ip" {
-  value = aws_instance.enisai.public_ip
+resource "aws_iam_role" "ecs_execution_role" {
+  name = "enisai-ecs-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
-output "app_url" {
-  value = "http://${aws_instance.enisai.public_ip}:5000/"
+resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
+  role       = aws_iam_role.ecs_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-output "prometheus_url" {
-  value = "http://${aws_instance.enisai.public_ip}:9090/"
+output "ecr_repository_url" {
+  value = aws_ecr_repository.enisai.repository_url
 }
 
-output "grafana_url" {
-  value = "http://${aws_instance.enisai.public_ip}:3000/"
+output "ecs_cluster_name" {
+  value = aws_ecs_cluster.enisai.name
+}
+
+output "ecs_service_name" {
+  value = aws_ecs_service.enisai.name
 }
 
 
