@@ -26,37 +26,8 @@ data "aws_ecr_repository" "enisai" {
   name = "enisai"
 }
 
-resource "aws_security_group" "enisai" {
-  name        = "enisai-sg"
-  description = "Allow HTTP app, Prometheus, Grafana"
-
-  ingress {
-    from_port   = 5000
-    to_port     = 5000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 9090
-    to_port     = 9090
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+data "aws_security_group" "enisai" {
+  name = "enisai-sg"
 }
 
 resource "aws_ecs_cluster" "enisai" {
@@ -69,7 +40,7 @@ resource "aws_ecs_task_definition" "enisai" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = 512
   memory                   = 1024
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
+  execution_role_arn       = data.aws_iam_role.ecs_execution_role.arn
 
   container_definitions = jsonencode([
     {
@@ -117,31 +88,13 @@ resource "aws_ecs_service" "enisai" {
 
   network_configuration {
     subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.enisai.id]
+    security_groups  = [data.aws_security_group.enisai.id]
     assign_public_ip = true
   }
 }
 
-resource "aws_iam_role" "ecs_execution_role" {
+data "aws_iam_role" "ecs_execution_role" {
   name = "enisai-ecs-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
-  role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 output "ecr_repository_url" {
