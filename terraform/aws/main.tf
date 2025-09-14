@@ -91,6 +91,10 @@ resource "aws_ecs_service" "enisai" {
     security_groups  = [data.aws_security_group.enisai.id]
     assign_public_ip = true
   }
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 }
 
 data "aws_iam_role" "ecs_execution_role" {

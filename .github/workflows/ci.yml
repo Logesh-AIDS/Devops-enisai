@@ -150,6 +150,14 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
       - name: Terraform Init
         run: terraform init -input=false
+      - name: Import existing ECS service
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
+          TF_VAR_image: ${{ steps.login-ecr.outputs.registry }}/enisai:${{ github.sha }}
+        run: |
+          # Try to import existing service, ignore if it fails
+          ./import-service.sh || echo "Service import failed or not needed"
       - name: Terraform Apply
         env:
           TF_VAR_aws_region: ${{ secrets.AWS_REGION }}
