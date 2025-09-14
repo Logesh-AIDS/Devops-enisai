@@ -61,44 +61,6 @@ resource "aws_ecs_task_definition" "enisai" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-    },
-    {
-      name  = "prometheus"
-      image = "prom/prometheus:latest"
-      portMappings = [
-        {
-          containerPort = 9090
-          hostPort      = 9091
-        }
-      ]
-      essential = false
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = "/ecs/enisai"
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
-    },
-    {
-      name  = "grafana"
-      image = "grafana/grafana:latest"
-      portMappings = [
-        {
-          containerPort = 3000
-          hostPort      = 3001
-        }
-      ]
-      essential = false
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = "/ecs/enisai"
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ecs"
-        }
-      }
     }
   ])
 }
