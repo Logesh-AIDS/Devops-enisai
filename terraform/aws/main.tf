@@ -53,6 +53,14 @@ resource "aws_ecs_task_definition" "enisai" {
         }
       ]
       essential = true
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/enisai"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     },
     {
       name  = "prometheus"
@@ -60,10 +68,18 @@ resource "aws_ecs_task_definition" "enisai" {
       portMappings = [
         {
           containerPort = 9090
-          hostPort      = 9090
+          hostPort      = 9091
         }
       ]
-      essential = true
+      essential = false
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/enisai"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     },
     {
       name  = "grafana"
@@ -71,10 +87,18 @@ resource "aws_ecs_task_definition" "enisai" {
       portMappings = [
         {
           containerPort = 3000
-          hostPort      = 3000
+          hostPort      = 3001
         }
       ]
-      essential = true
+      essential = false
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/enisai"
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 }
@@ -99,6 +123,11 @@ resource "aws_ecs_service" "enisai" {
 
 data "aws_iam_role" "ecs_execution_role" {
   name = "enisai-ecs-execution-role"
+}
+
+resource "aws_cloudwatch_log_group" "enisai" {
+  name              = "/ecs/enisai"
+  retention_in_days = 7
 }
 
 output "ecr_repository_url" {
